@@ -1,0 +1,5 @@
+/target/
+/payment-webhook-db.mv.db
+/payment-webhook-db.trace.db
+.vscode/
+.DS_Store
