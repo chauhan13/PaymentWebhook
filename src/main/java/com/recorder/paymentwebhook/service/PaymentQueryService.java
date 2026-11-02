@@ -64,9 +64,6 @@ public class PaymentQueryService {
         Map<String, Long> countsByStatus = new java.util.LinkedHashMap<>();
         for (Payment payment : payments) {
             countsByStatus.merge(payment.getStatus().name(), 1L, Long::sum);
-            Order order = orderRepository.findById(payment.getOrder().getId()).orElseThrow();
-            webhookEventRepository.countByPaymentReference(payment.getPaymentReference());
-            fulfillmentRepository.countByOrder_Id(order.getId());
         }
         return new PaymentSummary(
                 payments.size(),
