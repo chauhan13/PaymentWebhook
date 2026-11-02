@@ -57,16 +57,20 @@ public class PaymentWebhookService {
         log.info("Webhook processing started paymentReference={} eventId={} eventType={} sequence={} startedAt={}",
                 request.paymentReference(), request.eventId(), request.eventType(),
                 request.eventSequence(), receivedAt);
-
-        boolean alreadySeen = webhookEventRepository.existsByEventId(request.eventId());
-        if (alreadySeen) {
-            log.warn("Previously observed event ID received again; continuing processing paymentReference={} eventId={}",
-                    request.paymentReference(), request.eventId());
-        }
+        
         processingCheckpoint.afterDuplicateCheck();
 
-        Payment payment = paymentRepository.findByPaymentReference(request.paymentReference())
+        Payment payment = paymentRepository.findLockPaymentReference(request.paymentReference())
                 .orElseThrow(() -> new PaymentNotFoundException(request.paymentReference()));
+        if (webhookEventRepository.existsByEventId(request.eventId())) {
+            return new WebhookReceipt(request.eventId(),request.paymentReference(),"DUPLICATE",receivedAt);
+        }
+        PaymentStatus nextStatus = statusFor(request.eventType());
+        if(request.eventSequence()<=payment.getLastEventSequence() || payment.getStatus() == PaymentStatus.REFUNDED
+    || payment.getStatus() == PaymentStatus.SUCCESS && nextStatus!= PaymentStatus.REFUNDED){
+        return new WebhookReceipt(request.eventId(),request.paymentReference(),"IGNORED",receivedAt);
+    }
+
         Order order = orderRepository.findById(payment.getOrder().getId())
                 .orElseThrow(() -> new PaymentNotFoundException(request.paymentReference()));
 
@@ -75,10 +79,9 @@ public class PaymentWebhookService {
             orderRepository.findById(order.getId());
         }
 
-        PaymentStatus nextStatus = statusFor(request.eventType());
         payment.apply(nextStatus, request.eventSequence());
         order.setStatus(orderStatusFor(nextStatus));
-        if (request.eventType() == WebhookEventType.PAYMENT_SUCCESS) {
+        if (nextStatus == PaymentStatus.SUCCESS && fulfillmentRepository.countByOrder_Id(order.getId())==0) {
             fulfillmentRepository.save(new Fulfillment(order, payment.getPaymentReference(), "READY"));
         }
 
